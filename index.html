@@ -3,32 +3,33 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ESCAPE: FIRST PERSON</title>
+    <title>EXPLORE: FIRST PERSON CITY</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
+            background: rgba(0,0,0,0.8); display: flex; flex-direction: column;
             align-items: center; justify-content: center; z-index: 100; color: white;
         }
         #start-btn {
-            padding: 20px 50px; font-size: 24px; cursor: pointer; display: none;
-            background: #00ff00; color: #000; border: none; font-weight: bold; border-radius: 50px;
+            padding: 15px 40px; font-size: 20px; cursor: pointer; display: none;
+            background: #fff; color: #000; border: none; border-radius: 30px;
         }
-        #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: white; pointer-events: none; z-index: 10; }
-        #joystick-zone { position: absolute; bottom: 50px; left: 50px; width: 150px; height: 150px; z-index: 20; }
-        #dist-val { color: #ff0000; font-size: 30px; font-weight: bold; text-shadow: 0 0 10px red; }
+        #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 200; }
+        #crosshair {
+            position: absolute; top: 50%; left: 50%; width: 10px; height: 10px;
+            border: 1px solid rgba(255,255,255,0.5); border-radius: 50%; transform: translate(-50%, -50%);
+        }
     </style>
 </head>
 <body>
     <div id="overlay">
-        <h1 id="status">正在载入巨大都市...</h1>
-        <button id="start-btn">进入世界</button>
+        <h2 id="status">正在加载巨大模型...</h2>
+        <button id="start-btn">进入城市</button>
+        <p style="margin-top:15px; font-size:12px; color:#aaa;">电脑：WASD 移动，点击屏幕锁定视角 | 手机：左侧摇杆，右侧滑动</p>
     </div>
-    <div id="ui">
-        <div id="dist-val">-- M</div>
-        <p>左侧摇杆移动 | 右侧屏幕滑动转头</p>
-    </div>
+    
+    <div id="crosshair"></div>
     <div id="joystick-zone"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
@@ -46,118 +47,133 @@
 
         let isStarted = false;
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 20000);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 30000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.toneMapping = THREE.ReinhardToneMapping;
-        renderer.toneMappingExposure = 2.0;
+        renderer.toneMappingExposure = 2.0; // 再次增强亮度
         document.body.appendChild(renderer.domElement);
 
-        // 灯光与雾气
-        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
-        const sun = new THREE.DirectionalLight(0xffffff, 2);
-        sun.position.set(100, 500, 100);
+        // --- 环境设置 ---
+        scene.add(new THREE.AmbientLight(0xffffff, 2.0));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+        sun.position.set(200, 500, 200);
         scene.add(sun);
-        scene.fog = new THREE.Fog(0x000000, 10, 1000);
+        scene.fog = new THREE.Fog(0x000000, 50, 1500);
 
-        // 玩家状态
+        // --- 玩家系统 ---
         const player = new THREE.Group();
-        player.position.set(0, 5, 0); // 第一人称高度
+        player.position.set(0, 10, 0); // 初始离地高度
         scene.add(player);
-        player.add(camera); // 相机就是眼睛
+        player.add(camera); // 相机绑定
 
-        const moveState = { forward: 0, side: 0, angle: 0 };
-        const collidableMeshList = []; // 存储所有有碰撞的建筑
+        const moveState = { forward: 0, side: 0 };
+        const keys = {};
+        let lon = 0, lat = 0;
 
-        // 加载地图
+        // --- 地图加载 (增强尺寸) ---
         const fbxLoader = new FBXLoader();
         fbxLoader.load('map.fbx', (object) => {
-            // 调大地图比例
-            const scale = 2000; 
+            const scale = 3000; // 地图调得超级大
             object.scale.set(scale, scale, scale);
             
             object.traverse(c => { 
                 if(c.isMesh) {
-                    c.material = new THREE.MeshStandardMaterial({color: 0x555555});
-                    collidableMeshList.push(c); // 加入碰撞名单
+                    // 彻底替换材质，防止全黑
+                    c.material = new THREE.MeshStandardMaterial({
+                        color: 0x888888,
+                        metalness: 0.1,
+                        roughness: 0.8
+                    });
                 }
             });
             scene.add(object);
-            document.getElementById('status').innerText = "都市构建完成";
+            document.getElementById('status').innerText = "加载完毕";
             document.getElementById('start-btn').style.display = "block";
         });
 
-        // 追逐者 (红色的巨型威胁)
-        const chaser = new THREE.Mesh(new THREE.BoxGeometry(10, 20, 10), new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0xff0000}));
-        chaser.position.set(0, 10, 200);
-        scene.add(chaser);
-
-        // 移动端摇杆初始化
-        const manager = nipplejs.create({
-            zone: document.getElementById('joystick-zone'),
-            mode: 'static',
-            position: { left: '80px', bottom: '80px' },
-            color: 'white'
+        // --- 交互控制 ---
+        const joy = nipplejs.create({ zone: document.getElementById('joystick-zone'), mode: 'static', position: { left: '80px', bottom: '80px' }, color: 'white' });
+        joy.on('move', (e, data) => {
+            const f = data.force;
+            moveState.forward = Math.sin(data.angle.rad) * f * 0.8;
+            moveState.side = Math.cos(data.angle.rad) * f * 0.8;
         });
+        joy.on('end', () => { moveState.forward = 0; moveState.side = 0; });
 
-        manager.on('move', (evt, data) => {
-            const force = data.force || 0;
-            moveState.forward = -Math.sin(data.angle.rad) * force * 0.8;
-            moveState.side = Math.cos(data.angle.rad) * force * 0.8;
-        });
-        manager.on('end', () => { moveState.forward = 0; moveState.side = 0; });
-
-        // 视角转向 (右屏滑动)
-        let lon = 0, lat = 0;
-        window.addEventListener('touchmove', (e) => {
-            if(e.touches[0].clientX > window.innerWidth/2) {
-                lon -= e.movementX * 0.2 || 0;
-                lat = Math.max(-85, Math.min(85, lat + (e.movementY * 0.2 || 0)));
+        // 右屏滑动逻辑 (适配手机+电脑)
+        let isPointerLocked = false;
+        document.addEventListener('mousemove', (e) => {
+            if (isPointerLocked) {
+                lon -= e.movementX * 0.15;
+                lat = Math.max(-85, Math.min(85, lat - e.movementY * 0.15));
             }
         });
+
+        // 手机触摸转头
+        window.addEventListener('touchmove', (e) => {
+            if(e.touches[0].clientX > window.innerWidth / 2) {
+                // 如果是右半屏划动
+                const touch = e.touches[0];
+                if (window.lastTouchX) {
+                    lon -= (touch.clientX - window.lastTouchX) * 0.3;
+                    lat = Math.max(-85, Math.min(85, lat + (touch.clientY - window.lastTouchY) * 0.3));
+                }
+                window.lastTouchX = touch.clientX;
+                window.lastTouchY = touch.clientY;
+            }
+        });
+        window.addEventListener('touchend', () => { window.lastTouchX = null; window.lastTouchY = null; });
+
+        window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
+        window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
 
         document.getElementById('start-btn').onclick = () => {
             document.getElementById('overlay').style.display = "none";
             isStarted = true;
+            // 尝试请求指针锁定（电脑端体验更好）
+            document.body.requestPointerLock?.();
         };
 
-        function checkCollision(newPos) {
-            // 简单的距离中心点判断，防止穿过地图中心
-            // 这里可以根据你的地图特点自定义逻辑
-            return false; 
-        }
+        document.addEventListener('pointerlockchange', () => {
+            isPointerLocked = document.pointerLockElement === document.body;
+        });
 
+        // --- 主循环 ---
         function animate() {
             requestAnimationFrame(animate);
             if (!isStarted) return;
 
-            // 更新视角旋转
+            // 1. 视角更新
             player.rotation.y = THREE.MathUtils.degToRad(lon);
-            camera.rotation.x = THREE.MathUtils.degToRad(-lat);
+            camera.rotation.x = THREE.MathUtils.degToRad(lat);
 
-            // 移动
-            const moveVec = new THREE.Vector3(moveState.side, 0, moveState.forward);
-            moveVec.applyQuaternion(player.quaternion);
+            // 2. 移动计算 (核心修复：基于旋转朝向移动)
+            const actualMove = new THREE.Vector3(0, 0, 0);
             
-            // 简易碰撞：如果前方有东西就不动
-            const originPoint = player.position.clone();
-            player.position.add(moveVec);
+            // 键盘逻辑
+            if(keys['w']) actualMove.z -= 1.2;
+            if(keys['s']) actualMove.z += 1.2;
+            if(keys['a']) actualMove.x -= 1.2;
+            if(keys['d']) actualMove.x += 1.2;
 
-            // 追逐者 AI (稍微提速)
-            const dir = new THREE.Vector3().subVectors(player.position, chaser.position).normalize();
-            chaser.position.add(dir.multiplyScalar(0.7));
+            // 摇杆逻辑
+            actualMove.z -= moveState.forward;
+            actualMove.x += moveState.side;
 
-            const d = player.position.distanceTo(chaser.position);
-            document.getElementById('dist-val').innerText = `${d.toFixed(1)} M`;
-
-            // 越近屏幕越红
-            renderer.setClearColor(new THREE.Color(Math.max(0, 0.5 - d/100), 0, 0));
-
-            if(d < 10) { alert("你被它抓住了..."); location.reload(); }
+            // 转换到局部空间坐标
+            actualMove.applyQuaternion(player.quaternion);
+            player.position.add(actualMove);
 
             renderer.render(scene, camera);
         }
         animate();
+
+        window.onresize = () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        };
     </script>
 </body>
 </html>
