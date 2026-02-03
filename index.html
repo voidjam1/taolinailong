@@ -3,110 +3,96 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>FINAL REPAIR: FULL RENDER</title>
+    <title>PROCEDURAL CITY: ESCAPE</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #111; touch-action: none; }
+        body { margin: 0; overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
+            background: rgba(0,0,0,0.8); display: flex; flex-direction: column;
             align-items: center; justify-content: center; z-index: 100; color: white;
         }
-        #start-btn { padding: 18px 50px; font-size: 22px; cursor: pointer; display: none; background: #00ff00; border: none; border-radius: 5px; font-weight: bold; }
+        #start-btn { padding: 15px 40px; font-size: 20px; cursor: pointer; background: #00ff00; border: none; border-radius: 5px; }
         #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 200; }
     </style>
 </head>
 <body>
     <div id="overlay">
-        <h2 id="status">正在强制渲染世界...</h2>
-        <button id="start-btn">确认进入</button>
+        <h1>方块都市：逃离</h1>
+        <button id="start-btn">开始漫游</button>
+        <p style="color: #888; margin-top: 10px;">左摇杆移动 | 右侧滑动视角</p>
     </div>
     <div id="joystick-zone"></div>
 
     <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
     <script type="importmap">
-        { "imports": { 
-            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-        } }
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
-        import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
         const scene = new THREE.Scene();
-        // 调近远裁剪面，1 到 100000 确保大城市能显示全
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100000);
+        scene.fog = new THREE.FogExp2(0x000000, 0.015);
+
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        
-        // --- 修复关键点 1：渲染器亮度逻辑 ---
-        renderer.useLegacyLights = true; // 回到传统灯光模式，强度更易控制
-        renderer.outputColorSpace = THREE.SRGBColorSpace;
         document.body.appendChild(renderer.domElement);
 
-        // --- 修复关键点 2：暴力打光 ---
-        const ambient = new THREE.AmbientLight(0xffffff, 2.0); // 极强的全局白光
-        scene.add(ambient);
-
-        const pointLight = new THREE.PointLight(0xffffff, 5.0, 0); // 挂载在相机上的无衰减点光源
-        camera.add(pointLight);
+        // --- 环境光与手电筒 ---
+        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
+        const headLight = new THREE.PointLight(0x00ff00, 20, 50); // 绿色的随身灯
+        camera.add(headLight);
         scene.add(camera);
 
-        // --- 修复关键点 3：材质重写与坐标归零 ---
-        const fbxLoader = new FBXLoader();
-        fbxLoader.load('map.fbx', (object) => {
-            const scale = 500; // 适当调小一点点缩放，防止模型超出坐标极限
-            object.scale.set(scale, scale, scale);
-            
-            // 将模型中心强制移到 (0,0,0)
-            const box = new THREE.Box3().setFromObject(object);
-            const center = box.getCenter(new THREE.Vector3());
-            object.position.sub(center); 
-            object.position.y = 0; // 确保踩在地上
+        // --- 地面 ---
+        const ground = new THREE.Mesh(
+            new THREE.PlaneGeometry(1000, 1000),
+            new THREE.MeshStandardMaterial({ color: 0x111111 })
+        );
+        ground.rotation.x = -Math.PI / 2;
+        scene.add(ground);
 
-            object.traverse(c => { 
-                if(c.isMesh) {
-                    // 强制使用不依赖复杂贴图的高亮材质
-                    c.material = new THREE.MeshLambertMaterial({
-                        color: new THREE.Color(`hsl(${Math.random() * 360}, 50%, 60%)`),
-                        emissive: new THREE.Color(0x222222) // 增加微弱自发光，防止任何死黑
-                    });
-                }
-            });
-            scene.add(object);
-            document.getElementById('status').innerText = "世界已点亮！";
-            document.getElementById('start-btn').style.display = "block";
-        }, (xhr) => {
-            const p = (xhr.loaded / xhr.total * 100).toFixed(0);
-            document.getElementById('status').innerText = `正在传输城市数据: ${p}%`;
-        });
+        // --- 程序化生成建筑 (碰撞检测名单) ---
+        const buildings = [];
+        for (let i = 0; i < 200; i++) {
+            const h = 5 + Math.random() * 30;
+            const w = 5 + Math.random() * 10;
+            const box = new THREE.Mesh(
+                new THREE.BoxGeometry(w, h, w),
+                new THREE.MeshStandardMaterial({ 
+                    color: new THREE.Color(`hsl(${Math.random() * 360}, 50%, 40%)`)
+                })
+            );
+            box.position.set(Math.random() * 400 - 200, h/2, Math.random() * 400 - 200);
+            // 别让房子挡住出生点
+            if (box.position.distanceTo(new THREE.Vector3(0,0,0)) > 20) {
+                scene.add(box);
+                buildings.push(box);
+            }
+        }
 
-        // 玩家定位
+        // --- 控制器 ---
         const player = new THREE.Group();
-        player.position.set(0, 10, 50); 
+        player.position.set(0, 1.7, 0); // 正常成年人视高
         scene.add(player);
         player.add(camera);
 
-        let isStarted = false;
         let moveState = { f: 0, s: 0 };
-        let lon = 0, lat = 0;
-
-        // 摇杆控制
         const joy = nipplejs.create({ zone: document.getElementById('joystick-zone'), mode: 'static', position: { left: '80px', bottom: '80px' }, color: 'white' });
-        joy.on('move', (e, data) => {
-            moveState.f = Math.sin(data.angle.rad) * data.force * 5; // 提高移动速度
-            moveState.s = Math.cos(data.angle.rad) * data.force * 5;
+        joy.on('move', (e, d) => {
+            moveState.f = Math.sin(d.angle.rad) * d.force * 0.4;
+            moveState.s = Math.cos(d.angle.rad) * d.force * 0.4;
         });
         joy.on('end', () => { moveState.f = 0; moveState.s = 0; });
 
-        // 右屏滑动视角
+        let lon = 0, lat = 0;
         window.addEventListener('touchmove', (e) => {
             if(e.touches[0].clientX > window.innerWidth / 2) {
                 const t = e.touches[0];
                 if (window.lastX) {
-                    lon -= (t.clientX - window.lastX) * 0.4;
-                    lat = Math.max(-85, Math.min(85, lat + (t.clientY - window.lastY) * 0.4));
+                    lon -= (t.clientX - window.lastX) * 0.3;
+                    lat = Math.max(-85, Math.min(85, lat + (t.clientY - window.lastY) * 0.3));
                 }
                 window.lastX = t.clientX; window.lastY = t.clientY;
             }
@@ -115,29 +101,31 @@
 
         document.getElementById('start-btn').onclick = () => {
             document.getElementById('overlay').style.display = "none";
-            isStarted = true;
         };
 
         function animate() {
             requestAnimationFrame(animate);
-            if (!isStarted) return;
-
             player.rotation.y = THREE.MathUtils.degToRad(lon);
             camera.rotation.x = THREE.MathUtils.degToRad(lat);
 
-            const moveVec = new THREE.Vector3(moveState.s, 0, -moveState.f);
-            moveVec.applyQuaternion(player.quaternion);
-            player.position.add(moveVec);
+            const nextPos = player.position.clone();
+            const moveVec = new THREE.Vector3(moveState.s, 0, -moveState.f).applyQuaternion(player.quaternion);
+            nextPos.add(moveVec);
+
+            // 极简碰撞检测：如果新位置离任何建筑中心太近，就不许走
+            let canMove = true;
+            for(let b of buildings) {
+                const dx = nextPos.x - b.position.x;
+                const dz = nextPos.z - b.position.z;
+                const dist = Math.sqrt(dx*dx + dz*dz);
+                if (dist < 8) { canMove = false; break; } // 8 是建筑宽度的一半左右
+            }
+
+            if(canMove) player.position.copy(nextPos);
 
             renderer.render(scene, camera);
         }
         animate();
-
-        window.onresize = () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        };
     </script>
 </body>
 </html>
