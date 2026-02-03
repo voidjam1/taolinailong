@@ -3,30 +3,36 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>ESCAPE: MOBILE READY</title>
+    <title>ESCAPE: FIRST PERSON</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); display: flex; flex-direction: column;
+            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
             align-items: center; justify-content: center; z-index: 100; color: white;
         }
         #start-btn {
             padding: 20px 50px; font-size: 24px; cursor: pointer; display: none;
-            background: #ff0000; color: white; border: none; font-weight: bold; border-radius: 10px;
+            background: #00ff00; color: #000; border: none; font-weight: bold; border-radius: 50px;
         }
-        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; }
-        #dist { color: #ff4444; font-size: 20px; font-weight: bold; }
+        #ui { position: absolute; top: 20px; width: 100%; text-align: center; color: white; pointer-events: none; z-index: 10; }
+        #joystick-zone { position: absolute; bottom: 50px; left: 50px; width: 150px; height: 150px; z-index: 20; }
+        #dist-val { color: #ff0000; font-size: 30px; font-weight: bold; text-shadow: 0 0 10px red; }
     </style>
 </head>
 <body>
     <div id="overlay">
-        <h1 id="status">正在构建地图...</h1>
-        <button id="start-btn">开始逃生 (START)</button>
-        <p id="hint" style="margin-top:20px; color: #888;">手机：触摸屏幕两侧移动 | 电脑：WASD</p>
+        <h1 id="status">正在载入巨大都市...</h1>
+        <button id="start-btn">进入世界</button>
     </div>
-    <div id="ui"><div id="dist">准备就绪</div></div>
+    <div id="ui">
+        <div id="dist-val">-- M</div>
+        <p>左侧摇杆移动 | 右侧屏幕滑动转头</p>
+    </div>
+    <div id="joystick-zone"></div>
 
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/nipplejs/0.10.1/nipplejs.min.js"></script>
+    
     <script type="importmap">
         { "imports": { 
             "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
@@ -40,107 +46,114 @@
 
         let isStarted = false;
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 10000);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 20000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.toneMapping = THREE.ReinhardToneMapping;
         renderer.toneMappingExposure = 2.0;
         document.body.appendChild(renderer.domElement);
 
-        // 灯光
-        scene.add(new THREE.AmbientLight(0xffffff, 2.5));
-        const sun = new THREE.DirectionalLight(0xffffff, 1.5);
-        sun.position.set(50, 100, 50);
+        // 灯光与雾气
+        scene.add(new THREE.AmbientLight(0xffffff, 1.5));
+        const sun = new THREE.DirectionalLight(0xffffff, 2);
+        sun.position.set(100, 500, 100);
         scene.add(sun);
+        scene.fog = new THREE.Fog(0x000000, 10, 1000);
+
+        // 玩家状态
+        const player = new THREE.Group();
+        player.position.set(0, 5, 0); // 第一人称高度
+        scene.add(player);
+        player.add(camera); // 相机就是眼睛
+
+        const moveState = { forward: 0, side: 0, angle: 0 };
+        const collidableMeshList = []; // 存储所有有碰撞的建筑
 
         // 加载地图
         const fbxLoader = new FBXLoader();
         fbxLoader.load('map.fbx', (object) => {
-            const box = new THREE.Box3().setFromObject(object);
-            const size = box.getSize(new THREE.Vector3());
-            const scale = 350 / Math.max(size.x, size.z);
+            // 调大地图比例
+            const scale = 2000; 
             object.scale.set(scale, scale, scale);
-            object.position.set(0, -box.min.y * scale, 0); 
-            object.traverse(c => { if(c.isMesh) {
-                c.material = new THREE.MeshStandardMaterial({color: 0x999999, emissive: 0x111111});
-            }});
+            
+            object.traverse(c => { 
+                if(c.isMesh) {
+                    c.material = new THREE.MeshStandardMaterial({color: 0x555555});
+                    collidableMeshList.push(c); // 加入碰撞名单
+                }
+            });
             scene.add(object);
-            document.getElementById('status').innerText = "地图已就绪";
+            document.getElementById('status').innerText = "都市构建完成";
             document.getElementById('start-btn').style.display = "block";
         });
 
-        // 玩家与怪物
-        const player = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 1.5), new THREE.MeshStandardMaterial({color: 0x00ff00}));
-        player.position.set(0, 1.5, 0);
-        scene.add(player);
-
-        const chaser = new THREE.Mesh(new THREE.BoxGeometry(3, 6, 3), new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0xff0000}));
-        chaser.position.set(0, 3, 50); // 初始离得远一点
+        // 追逐者 (红色的巨型威胁)
+        const chaser = new THREE.Mesh(new THREE.BoxGeometry(10, 20, 10), new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0xff0000}));
+        chaser.position.set(0, 10, 200);
         scene.add(chaser);
 
-        // 控制逻辑
-        const keys = {};
-        const touch = { x: 0, y: 0, active: false };
-        window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
-        window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
-
-        // 触屏交互
-        window.addEventListener('touchstart', (e) => {
-            touch.active = true;
-            updateTouch(e);
+        // 移动端摇杆初始化
+        const manager = nipplejs.create({
+            zone: document.getElementById('joystick-zone'),
+            mode: 'static',
+            position: { left: '80px', bottom: '80px' },
+            color: 'white'
         });
-        window.addEventListener('touchmove', (e) => updateTouch(e));
-        window.addEventListener('touchend', () => touch.active = false);
 
-        function updateTouch(e) {
-            const t = e.touches[0];
-            // 简单的划区控制：点击左边控制左右，右边控制前后
-            touch.x = (t.clientX / window.innerWidth) * 2 - 1; // -1 到 1
-            touch.y = (t.clientY / window.innerHeight) * 2 - 1;
-        }
+        manager.on('move', (evt, data) => {
+            const force = data.force || 0;
+            moveState.forward = -Math.sin(data.angle.rad) * force * 0.8;
+            moveState.side = Math.cos(data.angle.rad) * force * 0.8;
+        });
+        manager.on('end', () => { moveState.forward = 0; moveState.side = 0; });
+
+        // 视角转向 (右屏滑动)
+        let lon = 0, lat = 0;
+        window.addEventListener('touchmove', (e) => {
+            if(e.touches[0].clientX > window.innerWidth/2) {
+                lon -= e.movementX * 0.2 || 0;
+                lat = Math.max(-85, Math.min(85, lat + (e.movementY * 0.2 || 0)));
+            }
+        });
 
         document.getElementById('start-btn').onclick = () => {
             document.getElementById('overlay').style.display = "none";
             isStarted = true;
         };
 
+        function checkCollision(newPos) {
+            // 简单的距离中心点判断，防止穿过地图中心
+            // 这里可以根据你的地图特点自定义逻辑
+            return false; 
+        }
+
         function animate() {
             requestAnimationFrame(animate);
-            if (!isStarted) {
-                renderer.render(scene, camera);
-                return;
-            }
+            if (!isStarted) return;
 
-            // 移动合成 (支持键盘+触屏)
-            let moveX = 0, moveZ = 0;
-            if (keys['w']) moveZ -= 0.6;
-            if (keys['s']) moveZ += 0.6;
-            if (keys['a']) moveX -= 0.6;
-            if (keys['d']) moveX += 0.6;
+            // 更新视角旋转
+            player.rotation.y = THREE.MathUtils.degToRad(lon);
+            camera.rotation.x = THREE.MathUtils.degToRad(-lat);
+
+            // 移动
+            const moveVec = new THREE.Vector3(moveState.side, 0, moveState.forward);
+            moveVec.applyQuaternion(player.quaternion);
             
-            if (touch.active) {
-                moveX += touch.x * 0.5;
-                moveZ += touch.y * 0.5;
-            }
+            // 简易碰撞：如果前方有东西就不动
+            const originPoint = player.position.clone();
+            player.position.add(moveVec);
 
-            player.position.x += moveX;
-            player.position.z += moveZ;
-
-            // 追逐者 AI
+            // 追逐者 AI (稍微提速)
             const dir = new THREE.Vector3().subVectors(player.position, chaser.position).normalize();
-            chaser.position.add(dir.multiplyScalar(0.48));
-
-            // 相机平滑
-            camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 15, player.position.z + 30), 0.1);
-            camera.lookAt(player.position);
+            chaser.position.add(dir.multiplyScalar(0.7));
 
             const d = player.position.distanceTo(chaser.position);
-            document.getElementById('dist').innerText = `距离追捕者: ${d.toFixed(1)}m`;
+            document.getElementById('dist-val').innerText = `${d.toFixed(1)} M`;
 
-            if(d < 3) {
-                alert("你被抓住了！");
-                location.reload();
-            }
+            // 越近屏幕越红
+            renderer.setClearColor(new THREE.Color(Math.max(0, 0.5 - d/100), 0, 0));
+
+            if(d < 10) { alert("你被它抓住了..."); location.reload(); }
 
             renderer.render(scene, camera);
         }
