@@ -41,17 +41,28 @@
         const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2);
         scene.add(hemiLight);
 
-        // --- 核心：FBX 加载逻辑 ---
+      // --- 核心：FBX 加载逻辑 (修复黑屏版) ---
         const fbxLoader = new FBXLoader();
         fbxLoader.load('map.fbx', (object) => {
-            // 1. 调整比例（FBX 经常过大，根据需要调整 0.01 或 0.1）
-            object.scale.set(0.01, 0.01, 0.01); 
+            // 1. 自动适配大小（防止模型太大或太小）
+            const box = new THREE.Box3().setFromObject(object);
+            const size = box.getSize(new THREE.Vector3()).length();
+            const scale = 50 / size; // 强制缩放到合适尺寸
+            object.scale.set(scale, scale, scale);
             
-            // 2. 遍历模型，开启阴影并处理材质
+            // 2. 遍历并修复材质
             object.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
+                    
+                    // 修复全黑的关键：如果模型太黑，强制使用 MeshStandardMaterial
+                    if (child.material) {
+                        // 允许材质接收光照，如果 FBX 导出时没带贴图，至少能看到颜色
+                        child.material.emissive = new THREE.Color(0x222222); // 轻微自发光防止死黑
+                        child.material.roughness = 0.8; 
+                        child.material.metalness = 0.2;
+                    }
                 }
             });
 
