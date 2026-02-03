@@ -3,22 +3,22 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>REPAIR: LIGHT & COLOR</title>
+    <title>FINAL REPAIR: FULL RENDER</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; touch-action: none; }
+        body { margin: 0; overflow: hidden; background: #111; touch-action: none; }
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); display: flex; flex-direction: column;
+            background: rgba(0,0,0,0.9); display: flex; flex-direction: column;
             align-items: center; justify-content: center; z-index: 100; color: white;
         }
-        #start-btn { padding: 15px 40px; font-size: 20px; cursor: pointer; display: none; }
-        #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; }
+        #start-btn { padding: 18px 50px; font-size: 22px; cursor: pointer; display: none; background: #00ff00; border: none; border-radius: 5px; font-weight: bold; }
+        #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 200; }
     </style>
 </head>
 <body>
     <div id="overlay">
-        <h2 id="status">正在注入灯光与色彩...</h2>
-        <button id="start-btn">进入渲染后的城市</button>
+        <h2 id="status">正在强制渲染世界...</h2>
+        <button id="start-btn">确认进入</button>
     </div>
     <div id="joystick-zone"></div>
 
@@ -35,47 +35,56 @@
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
         const scene = new THREE.Scene();
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 1, 50000);
+        // 调近远裁剪面，1 到 100000 确保大城市能显示全
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 100000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        // 开启物理灯光渲染
-        renderer.useLegacyLights = false; 
+        
+        // --- 修复关键点 1：渲染器亮度逻辑 ---
+        renderer.useLegacyLights = true; // 回到传统灯光模式，强度更易控制
         renderer.outputColorSpace = THREE.SRGBColorSpace;
         document.body.appendChild(renderer.domElement);
 
-        // --- 核心修复：超强灯光组 ---
-        const ambient = new THREE.AmbientLight(0xffffff, 1.0); // 全局基础光
+        // --- 修复关键点 2：暴力打光 ---
+        const ambient = new THREE.AmbientLight(0xffffff, 2.0); // 极强的全局白光
         scene.add(ambient);
 
-        const camLight = new THREE.PointLight(0xffffff, 5000, 2000); // 相机手电筒
-        camera.add(camLight);
+        const pointLight = new THREE.PointLight(0xffffff, 5.0, 0); // 挂载在相机上的无衰减点光源
+        camera.add(pointLight);
         scene.add(camera);
 
-        // --- 地图加载与材质强刷 ---
+        // --- 修复关键点 3：材质重写与坐标归零 ---
         const fbxLoader = new FBXLoader();
         fbxLoader.load('map.fbx', (object) => {
-            const scale = 3000;
+            const scale = 500; // 适当调小一点点缩放，防止模型超出坐标极限
             object.scale.set(scale, scale, scale);
             
+            // 将模型中心强制移到 (0,0,0)
+            const box = new THREE.Box3().setFromObject(object);
+            const center = box.getCenter(new THREE.Vector3());
+            object.position.sub(center); 
+            object.position.y = 0; // 确保踩在地上
+
             object.traverse(c => { 
                 if(c.isMesh) {
-                    // 强行把白模刷成带点质感的灰色/蓝色调
-                    c.material = new THREE.MeshStandardMaterial({
-                        color: new THREE.Color(`hsl(${Math.random() * 360}, 30%, 40%)`), // 随机颜色
-                        metalness: 0.5,
-                        roughness: 0.2,
-                        emissive: new THREE.Color(0x111111) // 让它自己带一点点光
+                    // 强制使用不依赖复杂贴图的高亮材质
+                    c.material = new THREE.MeshLambertMaterial({
+                        color: new THREE.Color(`hsl(${Math.random() * 360}, 50%, 60%)`),
+                        emissive: new THREE.Color(0x222222) // 增加微弱自发光，防止任何死黑
                     });
                 }
             });
             scene.add(object);
-            document.getElementById('status').innerText = "城市色彩渲染完成！";
+            document.getElementById('status').innerText = "世界已点亮！";
             document.getElementById('start-btn').style.display = "block";
+        }, (xhr) => {
+            const p = (xhr.loaded / xhr.total * 100).toFixed(0);
+            document.getElementById('status').innerText = `正在传输城市数据: ${p}%`;
         });
 
-        // --- 玩家与控制 ---
+        // 玩家定位
         const player = new THREE.Group();
-        player.position.set(0, 50, 0); // 调高初始位置，防止掉入地底
+        player.position.set(0, 10, 50); 
         scene.add(player);
         player.add(camera);
 
@@ -86,18 +95,18 @@
         // 摇杆控制
         const joy = nipplejs.create({ zone: document.getElementById('joystick-zone'), mode: 'static', position: { left: '80px', bottom: '80px' }, color: 'white' });
         joy.on('move', (e, data) => {
-            moveState.f = Math.sin(data.angle.rad) * data.force * 2;
-            moveState.s = Math.cos(data.angle.rad) * data.force * 2;
+            moveState.f = Math.sin(data.angle.rad) * data.force * 5; // 提高移动速度
+            moveState.s = Math.cos(data.angle.rad) * data.force * 5;
         });
         joy.on('end', () => { moveState.f = 0; moveState.s = 0; });
 
-        // 右屏滑动
+        // 右屏滑动视角
         window.addEventListener('touchmove', (e) => {
             if(e.touches[0].clientX > window.innerWidth / 2) {
                 const t = e.touches[0];
                 if (window.lastX) {
-                    lon -= (t.clientX - window.lastX) * 0.5;
-                    lat = Math.max(-85, Math.min(85, lat + (t.clientY - window.lastY) * 0.5));
+                    lon -= (t.clientX - window.lastX) * 0.4;
+                    lat = Math.max(-85, Math.min(85, lat + (t.clientY - window.lastY) * 0.4));
                 }
                 window.lastX = t.clientX; window.lastY = t.clientY;
             }
@@ -123,6 +132,12 @@
             renderer.render(scene, camera);
         }
         animate();
+
+        window.onresize = () => {
+            camera.aspect = window.innerWidth / window.innerHeight;
+            camera.updateProjectionMatrix();
+            renderer.setSize(window.innerWidth, window.innerHeight);
+        };
     </script>
 </body>
 </html>
