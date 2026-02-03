@@ -3,23 +3,23 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
-    <title>PROCEDURAL CITY: ESCAPE</title>
+    <title>NEON CITY: NEVER DARK</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; touch-action: none; font-family: sans-serif; }
+        body { margin: 0; overflow: hidden; background: #050505; touch-action: none; font-family: sans-serif; }
         #overlay {
             position: absolute; top: 0; left: 0; width: 100%; height: 100%;
             background: rgba(0,0,0,0.8); display: flex; flex-direction: column;
             align-items: center; justify-content: center; z-index: 100; color: white;
         }
-        #start-btn { padding: 15px 40px; font-size: 20px; cursor: pointer; background: #00ff00; border: none; border-radius: 5px; }
+        #start-btn { padding: 15px 40px; font-size: 20px; cursor: pointer; background: #00ff00; border: none; border-radius: 5px; color: black; font-weight: bold; }
         #joystick-zone { position: absolute; bottom: 40px; left: 40px; width: 120px; height: 120px; z-index: 200; }
     </style>
 </head>
 <body>
     <div id="overlay">
-        <h1>方块都市：逃离</h1>
-        <button id="start-btn">开始漫游</button>
-        <p style="color: #888; margin-top: 10px;">左摇杆移动 | 右侧滑动视角</p>
+        <h1>霓虹都市：第一人称漫游</h1>
+        <button id="start-btn">确认进入</button>
+        <p style="color: #00ff00; margin-top: 15px;">已开启【强效光照】模式</p>
     </div>
     <div id="joystick-zone"></div>
 
@@ -32,57 +32,60 @@
         import * as THREE from 'three';
 
         const scene = new THREE.Scene();
-        scene.fog = new THREE.FogExp2(0x000000, 0.015);
+        // 给天空一点点深蓝色，不再是死黑
+        scene.background = new THREE.Color(0x020205);
+        scene.fog = new THREE.FogExp2(0x020205, 0.008);
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 2000);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 5000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
+        // 强制提高输出亮度
+        renderer.outputColorSpace = THREE.SRGBColorSpace;
         document.body.appendChild(renderer.domElement);
 
-        // --- 环境光与手电筒 ---
-        scene.add(new THREE.AmbientLight(0xffffff, 0.5));
-        const headLight = new THREE.PointLight(0x00ff00, 20, 50); // 绿色的随身灯
-        camera.add(headLight);
-        scene.add(camera);
+        // --- 核心：暴力补光 ---
+        const ambient = new THREE.AmbientLight(0xffffff, 3.0); // 极强的全局补光
+        scene.add(ambient);
 
-        // --- 地面 ---
-        const ground = new THREE.Mesh(
-            new THREE.PlaneGeometry(1000, 1000),
-            new THREE.MeshStandardMaterial({ color: 0x111111 })
-        );
-        ground.rotation.x = -Math.PI / 2;
-        scene.add(ground);
-
-        // --- 程序化生成建筑 (碰撞检测名单) ---
+        // --- 制作“发光”建筑 ---
         const buildings = [];
-        for (let i = 0; i < 200; i++) {
-            const h = 5 + Math.random() * 30;
-            const w = 5 + Math.random() * 10;
-            const box = new THREE.Mesh(
-                new THREE.BoxGeometry(w, h, w),
-                new THREE.MeshStandardMaterial({ 
-                    color: new THREE.Color(`hsl(${Math.random() * 360}, 50%, 40%)`)
-                })
-            );
-            box.position.set(Math.random() * 400 - 200, h/2, Math.random() * 400 - 200);
-            // 别让房子挡住出生点
-            if (box.position.distanceTo(new THREE.Vector3(0,0,0)) > 20) {
+        const boxGeo = new THREE.BoxGeometry(1, 1, 1);
+        
+        for (let i = 0; i < 300; i++) {
+            const h = 10 + Math.random() * 50;
+            const w = 8 + Math.random() * 12;
+            
+            // 使用 MeshLambertMaterial 并开启 emissive (自发光)
+            // 这样即使没灯，它自己也是亮的
+            const color = new THREE.Color().setHSL(Math.random(), 0.7, 0.5);
+            const material = new THREE.MeshLambertMaterial({ 
+                color: color,
+                emissive: color,
+                emissiveIntensity: 0.3 // 自发光强度
+            });
+
+            const box = new THREE.Mesh(boxGeo, material);
+            box.scale.set(w, h, w);
+            box.position.set(Math.random() * 600 - 300, h/2, Math.random() * 600 - 300);
+            
+            if (box.position.length() > 30) {
                 scene.add(box);
                 buildings.push(box);
             }
         }
 
-        // --- 控制器 ---
+        // --- 玩家系统 ---
         const player = new THREE.Group();
-        player.position.set(0, 1.7, 0); // 正常成年人视高
+        player.position.set(0, 2, 0); 
         scene.add(player);
         player.add(camera);
 
+        // 控制逻辑
         let moveState = { f: 0, s: 0 };
         const joy = nipplejs.create({ zone: document.getElementById('joystick-zone'), mode: 'static', position: { left: '80px', bottom: '80px' }, color: 'white' });
         joy.on('move', (e, d) => {
-            moveState.f = Math.sin(d.angle.rad) * d.force * 0.4;
-            moveState.s = Math.cos(d.angle.rad) * d.force * 0.4;
+            moveState.f = Math.sin(d.angle.rad) * d.force * 0.5;
+            moveState.s = Math.cos(d.angle.rad) * d.force * 0.5;
         });
         joy.on('end', () => { moveState.f = 0; moveState.s = 0; });
 
@@ -91,8 +94,8 @@
             if(e.touches[0].clientX > window.innerWidth / 2) {
                 const t = e.touches[0];
                 if (window.lastX) {
-                    lon -= (t.clientX - window.lastX) * 0.3;
-                    lat = Math.max(-85, Math.min(85, lat + (t.clientY - window.lastY) * 0.3));
+                    lon -= (t.clientX - window.lastX) * 0.4;
+                    lat = Math.max(-85, Math.min(85, lat + (t.clientY - window.lastY) * 0.4));
                 }
                 window.lastX = t.clientX; window.lastY = t.clientY;
             }
@@ -108,20 +111,8 @@
             player.rotation.y = THREE.MathUtils.degToRad(lon);
             camera.rotation.x = THREE.MathUtils.degToRad(lat);
 
-            const nextPos = player.position.clone();
             const moveVec = new THREE.Vector3(moveState.s, 0, -moveState.f).applyQuaternion(player.quaternion);
-            nextPos.add(moveVec);
-
-            // 极简碰撞检测：如果新位置离任何建筑中心太近，就不许走
-            let canMove = true;
-            for(let b of buildings) {
-                const dx = nextPos.x - b.position.x;
-                const dz = nextPos.z - b.position.z;
-                const dist = Math.sqrt(dx*dx + dz*dz);
-                if (dist < 8) { canMove = false; break; } // 8 是建筑宽度的一半左右
-            }
-
-            if(canMove) player.position.copy(nextPos);
+            player.position.add(moveVec);
 
             renderer.render(scene, camera);
         }
