@@ -2,175 +2,116 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>ESCAPE: THE CHASE - 3D FBX WORLD</title>
+    <title>ESCAPE: NEON CITY</title>
     <style>
         body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        #loading {
-            position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: yellow; font-size: 20px; text-shadow: 2px 2px #000;
-        }
-        #ui {
-            position: absolute; top: 20px; left: 20px; color: white;
-            text-shadow: 2px 2px #000; pointer-events: none;
-        }
-        #dist-ui { color: #ff4444; font-size: 24px; font-weight: bold; }
+        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ff00; font-size: 20px; }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; text-shadow: 2px 2px #000; }
     </style>
 </head>
 <body>
-    <div id="loading">正在唤醒 3D 世界...</div>
-    <div id="ui">
-        <div id="dist-ui">逃离追捕！距离：--m</div>
-        <p>WASD 移动 | 别被红色的家伙抓到</p>
-    </div>
+    <div id="loading">正在照明 3D 世界...</div>
+    <div id="ui"><div id="dist">距离追捕者: --m</div></div>
 
     <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
+        { "imports": { 
+            "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+            "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        } }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
-        // --- 1. 基础场景 ---
         const scene = new THREE.Scene();
         scene.background = new THREE.Color(0x050505);
-        scene.fog = new THREE.Fog(0x050505, 1, 150);
+        // 稍微调远雾气，防止遮挡视线
+        scene.fog = new THREE.Fog(0x050505, 50, 300);
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true;
+        // 提高色调映射，让画面更亮
+        renderer.toneMapping = THREE.ReinhardToneMapping;
+        renderer.toneMappingExposure = 2.5; 
         document.body.appendChild(renderer.domElement);
 
-        // --- 2. 强力打光系统 (重点修复在此) ---
-        // 1. 全局环境光 - 给整个场景一个基础亮度
-        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2); 
-        scene.add(ambientLight);
+        // --- 暴力打光系统 ---
+        const ambient = new THREE.AmbientLight(0xffffff, 3.0); // 极强的全局光
+        scene.add(ambient);
 
-        // 2. 半球光 - 模拟天空和地面的反射光，增加细节
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
-        scene.add(hemiLight);
+        const skyLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 2.0);
+        scene.add(skyLight);
 
-        // 3. 主平行光 - 产生阴影，模拟阳光
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
-        sunLight.position.set(50, 100, 50);
-        sunLight.castShadow = true;
-        scene.add(sunLight);
+        const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
+        dirLight.position.set(100, 200, 100);
+        scene.add(dirLight);
 
-        // --- 3. 加载 FBX 地图 ---
+        // --- 地图加载 ---
         const fbxLoader = new FBXLoader();
         fbxLoader.load('map.fbx', (object) => {
-            // 自动缩放和居中
             const box = new THREE.Box3().setFromObject(object);
             const size = box.getSize(new THREE.Vector3());
             const center = box.getCenter(new THREE.Vector3());
-            
-            // 调整比例：根据模型大小自动适配到 200 个单位左右
-            const maxDim = Math.max(size.x, size.y, size.z);
-            const scale = 200 / maxDim;
+            const scale = 300 / Math.max(size.x, size.z);
             object.scale.set(scale, scale, scale);
-            
-            // 将模型底部对齐到 Y=0
-            object.position.x = -center.x * scale;
-            object.position.y = -box.min.y * scale; 
-            object.position.z = -center.z * scale;
+            object.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
 
             object.traverse((child) => {
                 if (child.isMesh) {
+                    // 强制覆盖材质属性，破除死黑
+                    child.material = new THREE.MeshStandardMaterial({
+                        color: child.material.color || 0xcccccc,
+                        map: child.material.map,
+                        metalness: 0.1, // 降低金属度，防止变黑
+                        roughness: 0.5,
+                        emissive: new THREE.Color(0x111111), // 淡淡的自发光
+                    });
                     child.castShadow = true;
                     child.receiveShadow = true;
-                    // 如果材质全黑，强制赋予基础亮度
-                    if(child.material) {
-                        child.material.emissive = new THREE.Color(0x111111);
-                    }
                 }
             });
-
             scene.add(object);
             document.getElementById('loading').style.display = 'none';
-        }, (xhr) => {
-            const p = (xhr.loaded / xhr.total * 100).toFixed(0);
-            document.getElementById('loading').innerText = `加载世界: ${p}%`;
-        }, (err) => {
-            document.getElementById('loading').innerText = "加载失败，请检查文件名";
         });
 
-        // --- 4. 玩家与追逐者 ---
-        // 玩家 (绿方块)
-        const player = new THREE.Mesh(
-            new THREE.BoxGeometry(1, 2, 1), 
-            new THREE.MeshStandardMaterial({color: 0x00ff00})
-        );
+        // --- 角色与追逐 ---
+        const player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({color: 0x00ff00, emissive: 0x00ff00}));
         player.position.set(0, 1, 0);
         scene.add(player);
 
-        // 追逐者 (红方块 - "XXX")
-        const chaser = new THREE.Mesh(
-            new THREE.BoxGeometry(2, 4, 2), 
-            new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0x550000})
-        );
-        chaser.position.set(0, 2, 30); // 初始在后方
+        const chaser = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0xff0000}));
+        chaser.position.set(0, 2, 40);
         scene.add(chaser);
 
-        // --- 5. 运动与逻辑 ---
         const keys = {};
         window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
         window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
 
-        let chaserSpeed = 0.18;
-        let isGameOver = false;
-
         function animate() {
-            if (isGameOver) return;
             requestAnimationFrame(animate);
+            if (keys['w']) player.position.z -= 0.5;
+            if (keys['s']) player.position.z += 0.5;
+            if (keys['a']) player.position.x -= 0.5;
+            if (keys['d']) player.position.x += 0.5;
 
-            // 玩家移动
-            if(keys['w']) player.position.z -= 0.25;
-            if(keys['s']) player.position.z += 0.25;
-            if(keys['a']) player.position.x -= 0.25;
-            if(keys['d']) player.position.x += 0.25;
+            // 追逐逻辑
+            const dir = new THREE.Vector3().subVectors(player.position, chaser.position).normalize();
+            chaser.position.add(dir.multiplyScalar(0.45));
 
-            // 追逐者 AI：向玩家靠近
-            const direction = new THREE.Vector3().subVectors(player.position, chaser.position).normalize();
-            chaser.position.add(direction.multiplyScalar(chaserSpeed));
+            // 相机跟随
+            camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 8, player.position.z + 18), 0.1);
+            camera.lookAt(player.position);
 
-            // 相机动态平滑跟随
-            const idealCameraPos = new THREE.Vector3(player.position.x, player.position.y + 6, player.position.z + 15);
-            camera.position.lerp(idealCameraPos, 0.1);
-            camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+            const d = player.position.distanceTo(chaser.position);
+            document.getElementById('dist').innerText = `距离追捕者: ${d.toFixed(1)}m`;
 
-            // 距离计算
-            const dist = player.position.distanceTo(chaser.position);
-            document.getElementById('dist-ui').innerText = `逃离追捕！距离：${dist.toFixed(1)}m`;
-
-            // 靠近时的屏幕震动感
-            if (dist < 8) {
-                camera.position.x += (Math.random() - 0.5) * 0.1;
-                camera.position.y += (Math.random() - 0.5) * 0.1;
-            }
-
-            // 碰撞判定
-            if (dist < 1.5) {
-                isGameOver = true;
-                alert("你被抓住了！刷新页面重试。");
-                location.reload();
-            }
+            if(d < 2) location.reload();
 
             renderer.render(scene, camera);
         }
         animate();
-
-        // 窗口自适应
-        window.onresize = () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        };
     </script>
 </body>
 </html>
