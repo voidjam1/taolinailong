@@ -2,16 +2,30 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>ESCAPE: NEON CITY</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>ESCAPE: MOBILE READY</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
-        #loading { position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); color: #00ff00; font-size: 20px; }
-        #ui { position: absolute; top: 20px; left: 20px; color: white; text-shadow: 2px 2px #000; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; touch-action: none; }
+        #overlay {
+            position: absolute; top: 0; left: 0; width: 100%; height: 100%;
+            background: rgba(0,0,0,0.8); display: flex; flex-direction: column;
+            align-items: center; justify-content: center; z-index: 100; color: white;
+        }
+        #start-btn {
+            padding: 20px 50px; font-size: 24px; cursor: pointer; display: none;
+            background: #ff0000; color: white; border: none; font-weight: bold; border-radius: 10px;
+        }
+        #ui { position: absolute; top: 20px; left: 20px; color: white; pointer-events: none; }
+        #dist { color: #ff4444; font-size: 20px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div id="loading">正在照明 3D 世界...</div>
-    <div id="ui"><div id="dist">距离追捕者: --m</div></div>
+    <div id="overlay">
+        <h1 id="status">正在构建地图...</h1>
+        <button id="start-btn">开始逃生 (START)</button>
+        <p id="hint" style="margin-top:20px; color: #888;">手机：触摸屏幕两侧移动 | 电脑：WASD</p>
+    </div>
+    <div id="ui"><div id="dist">准备就绪</div></div>
 
     <script type="importmap">
         { "imports": { 
@@ -24,90 +38,109 @@
         import * as THREE from 'three';
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
+        let isStarted = false;
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x050505);
-        // 稍微调远雾气，防止遮挡视线
-        scene.fog = new THREE.Fog(0x050505, 50, 300);
-
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 10000);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth/window.innerHeight, 0.1, 10000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        // 提高色调映射，让画面更亮
         renderer.toneMapping = THREE.ReinhardToneMapping;
-        renderer.toneMappingExposure = 2.5; 
+        renderer.toneMappingExposure = 2.0;
         document.body.appendChild(renderer.domElement);
 
-        // --- 暴力打光系统 ---
-        const ambient = new THREE.AmbientLight(0xffffff, 3.0); // 极强的全局光
-        scene.add(ambient);
+        // 灯光
+        scene.add(new THREE.AmbientLight(0xffffff, 2.5));
+        const sun = new THREE.DirectionalLight(0xffffff, 1.5);
+        sun.position.set(50, 100, 50);
+        scene.add(sun);
 
-        const skyLight = new THREE.HemisphereLight(0xffffff, 0xffffff, 2.0);
-        scene.add(skyLight);
-
-        const dirLight = new THREE.DirectionalLight(0xffffff, 2.0);
-        dirLight.position.set(100, 200, 100);
-        scene.add(dirLight);
-
-        // --- 地图加载 ---
+        // 加载地图
         const fbxLoader = new FBXLoader();
         fbxLoader.load('map.fbx', (object) => {
             const box = new THREE.Box3().setFromObject(object);
             const size = box.getSize(new THREE.Vector3());
-            const center = box.getCenter(new THREE.Vector3());
-            const scale = 300 / Math.max(size.x, size.z);
+            const scale = 350 / Math.max(size.x, size.z);
             object.scale.set(scale, scale, scale);
-            object.position.set(-center.x * scale, -box.min.y * scale, -center.z * scale);
-
-            object.traverse((child) => {
-                if (child.isMesh) {
-                    // 强制覆盖材质属性，破除死黑
-                    child.material = new THREE.MeshStandardMaterial({
-                        color: child.material.color || 0xcccccc,
-                        map: child.material.map,
-                        metalness: 0.1, // 降低金属度，防止变黑
-                        roughness: 0.5,
-                        emissive: new THREE.Color(0x111111), // 淡淡的自发光
-                    });
-                    child.castShadow = true;
-                    child.receiveShadow = true;
-                }
-            });
+            object.position.set(0, -box.min.y * scale, 0); 
+            object.traverse(c => { if(c.isMesh) {
+                c.material = new THREE.MeshStandardMaterial({color: 0x999999, emissive: 0x111111});
+            }});
             scene.add(object);
-            document.getElementById('loading').style.display = 'none';
+            document.getElementById('status').innerText = "地图已就绪";
+            document.getElementById('start-btn').style.display = "block";
         });
 
-        // --- 角色与追逐 ---
-        const player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({color: 0x00ff00, emissive: 0x00ff00}));
-        player.position.set(0, 1, 0);
+        // 玩家与怪物
+        const player = new THREE.Mesh(new THREE.BoxGeometry(1.5, 3, 1.5), new THREE.MeshStandardMaterial({color: 0x00ff00}));
+        player.position.set(0, 1.5, 0);
         scene.add(player);
 
-        const chaser = new THREE.Mesh(new THREE.BoxGeometry(2, 4, 2), new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0xff0000}));
-        chaser.position.set(0, 2, 40);
+        const chaser = new THREE.Mesh(new THREE.BoxGeometry(3, 6, 3), new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0xff0000}));
+        chaser.position.set(0, 3, 50); // 初始离得远一点
         scene.add(chaser);
 
+        // 控制逻辑
         const keys = {};
+        const touch = { x: 0, y: 0, active: false };
         window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
         window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
 
+        // 触屏交互
+        window.addEventListener('touchstart', (e) => {
+            touch.active = true;
+            updateTouch(e);
+        });
+        window.addEventListener('touchmove', (e) => updateTouch(e));
+        window.addEventListener('touchend', () => touch.active = false);
+
+        function updateTouch(e) {
+            const t = e.touches[0];
+            // 简单的划区控制：点击左边控制左右，右边控制前后
+            touch.x = (t.clientX / window.innerWidth) * 2 - 1; // -1 到 1
+            touch.y = (t.clientY / window.innerHeight) * 2 - 1;
+        }
+
+        document.getElementById('start-btn').onclick = () => {
+            document.getElementById('overlay').style.display = "none";
+            isStarted = true;
+        };
+
         function animate() {
             requestAnimationFrame(animate);
-            if (keys['w']) player.position.z -= 0.5;
-            if (keys['s']) player.position.z += 0.5;
-            if (keys['a']) player.position.x -= 0.5;
-            if (keys['d']) player.position.x += 0.5;
+            if (!isStarted) {
+                renderer.render(scene, camera);
+                return;
+            }
 
-            // 追逐逻辑
+            // 移动合成 (支持键盘+触屏)
+            let moveX = 0, moveZ = 0;
+            if (keys['w']) moveZ -= 0.6;
+            if (keys['s']) moveZ += 0.6;
+            if (keys['a']) moveX -= 0.6;
+            if (keys['d']) moveX += 0.6;
+            
+            if (touch.active) {
+                moveX += touch.x * 0.5;
+                moveZ += touch.y * 0.5;
+            }
+
+            player.position.x += moveX;
+            player.position.z += moveZ;
+
+            // 追逐者 AI
             const dir = new THREE.Vector3().subVectors(player.position, chaser.position).normalize();
-            chaser.position.add(dir.multiplyScalar(0.45));
+            chaser.position.add(dir.multiplyScalar(0.48));
 
-            // 相机跟随
-            camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 8, player.position.z + 18), 0.1);
+            // 相机平滑
+            camera.position.lerp(new THREE.Vector3(player.position.x, player.position.y + 15, player.position.z + 30), 0.1);
             camera.lookAt(player.position);
 
             const d = player.position.distanceTo(chaser.position);
             document.getElementById('dist').innerText = `距离追捕者: ${d.toFixed(1)}m`;
 
-            if(d < 2) location.reload();
+            if(d < 3) {
+                alert("你被抓住了！");
+                location.reload();
+            }
 
             renderer.render(scene, camera);
         }
