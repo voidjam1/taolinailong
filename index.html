@@ -2,229 +2,109 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>逃离 XXX - 3D 极限跑酷</title>
+    <title>逃离大香蕉 2.0 - Web 3D版</title>
     <style>
-        /* 简单的 UI 样式 */
-        body { margin: 0; overflow: hidden; background: #87CEEB; font-family: 'Arial', sans-serif; user-select: none; }
-        
-        #ui-container {
-            position: absolute; top: 20px; left: 20px; 
-            color: white; pointer-events: none;
-            text-shadow: 2px 2px 0 #000;
+        body { margin: 0; overflow: hidden; background: #111; font-family: 'Microsoft YaHei', sans-serif; }
+        #ui { position: absolute; top: 20px; left: 20px; color: yellow; text-shadow: 2px 2px #000; pointer-events: none; }
+        #overlay { 
+            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%; 
+            background: rgba(255,0,0,0.4); color: white; flex-direction: column; align-items: center; justify-content: center;
         }
-        h1 { margin: 0; font-size: 24px; color: #ffeb3b; }
-        p { margin: 5px 0; font-size: 16px; }
-        .key { display: inline-block; background: rgba(255,255,255,0.3); padding: 2px 6px; border-radius: 4px; }
-
-        /* 游戏结束/胜利 弹窗 */
-        #overlay {
-            display: none; position: absolute; top: 0; left: 0; width: 100%; height: 100%;
-            background: rgba(0,0,0,0.8); color: white;
-            flex-direction: column; align-items: center; justify-content: center;
-            text-align: center;
-        }
-        #overlay h2 { font-size: 48px; margin-bottom: 20px; color: #ff4444; }
-        #restart-btn {
-            padding: 15px 30px; font-size: 20px; cursor: pointer;
-            background: white; border: none; border-radius: 50px;
-            font-weight: bold; color: #333; transition: 0.2s;
-        }
-        #restart-btn:hover { background: #ffeb3b; transform: scale(1.1); }
+        button { padding: 10px 20px; font-size: 20px; cursor: pointer; background: yellow; border: none; font-weight: bold; }
     </style>
 </head>
 <body>
-
-    <div id="ui-container">
-        <h1>🏃 逃离 XXX</h1>
-        <p><span class="key">W</span> <span class="key">A</span> <span class="key">S</span> <span class="key">D</span> 移动</p>
-        <p><span class="key">SPACE</span> 跳跃</p>
-        <p>⚠️ 别回头！它就在你身后！</p>
+    <div id="ui">
+        <h1>🍌 逃离大香蕉 (RUN!)</h1>
+        <p>它是魔性的，它是疯狂的... 别让它追上！</p>
     </div>
-
     <div id="overlay">
-        <h2 id="status-text">你被抓住了！😭</h2>
-        <button id="restart-btn" onclick="location.reload()">再试一次</button>
+        <h2 id="msg">你被大香蕉吃掉了！🍌</h2>
+        <button onclick="location.reload()">重新逃亡</button>
     </div>
 
     <script type="importmap">
-        {
-            "imports": {
-                "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
-                "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
-            }
-        }
+        { "imports": { "three": "https://unpkg.com/three@0.160.0/build/three.module.js" } }
     </script>
 
     <script type="module">
         import * as THREE from 'three';
-        import { GLTFLoader } from 'three/addons/loaders/GLTFLoader.js'; // 预留给你加载模型用
 
-        // ================= 配置区域 =================
-        const CONFIG = {
-            playerSpeed: 0.2,       // 玩家跑得有多快
-            jumpForce: 0.35,        // 跳跃高度
-            gravity: 0.015,         // 重力
-            chaserSpeed: 0.19,      // 怪物追你的速度 (比玩家稍慢一点点)
-            chaserStartDist: 15,    // 怪物初始距离你多远
-        };
-        // ===========================================
-
-        // 1. 初始化场景
+        // 基础设置
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x87CEEB);
-        scene.fog = new THREE.Fog(0x87CEEB, 20, 60); // 远处加点雾，增加神秘感
+        scene.background = new THREE.Color(0x000000); // 黑色背景更有恐怖感
+        scene.fog = new THREE.Fog(0x000000, 5, 40);
 
         const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 1000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
-        renderer.shadowMap.enabled = true; // 开启阴影
         document.body.appendChild(renderer.domElement);
 
-        // 2. 灯光
-        const ambientLight = new THREE.AmbientLight(0xffffff, 0.6);
-        scene.add(ambientLight);
-        const sunLight = new THREE.DirectionalLight(0xffffff, 1);
-        sunLight.position.set(50, 100, 50);
-        sunLight.castShadow = true;
-        // 优化阴影范围
-        sunLight.shadow.camera.left = -50;
-        sunLight.shadow.camera.right = 50;
-        sunLight.shadow.camera.top = 50;
-        sunLight.shadow.camera.bottom = -50;
-        scene.add(sunLight);
+        // 灯光：像视频里那样有一点阴森的聚光灯感
+        const spotLight = new THREE.SpotLight(0xffffff, 2);
+        spotLight.position.set(0, 10, 0);
+        scene.add(spotLight);
+        scene.add(new THREE.AmbientLight(0x444444));
 
-        // 3. 创建玩家 (Player)
-        // 🟩 TODO: 如果你要导入自己的模型，请在这里修改
-        const playerGeo = new THREE.BoxGeometry(1, 2, 1); // 简单的方块人
-        const playerMat = new THREE.MeshStandardMaterial({ color: 0x00ff00 }); 
-        const player = new THREE.Mesh(playerGeo, playerMat);
-        player.position.set(0, 1, 0);
-        player.castShadow = true;
+        // 1. 玩家 (绿色方块)
+        const player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({ color: 0x00ff00 }));
+        player.position.y = 1;
         scene.add(player);
 
-        // 4. 创建追逐者 (The Chaser - XXX)
-        // 🟥 TODO: 这里也可以换成恐怖模型的 GLB
-        const chaserGeo = new THREE.SphereGeometry(1.5, 32, 32);
-        const chaserMat = new THREE.MeshStandardMaterial({ color: 0xff0000, emissive: 0x440000 });
-        const chaser = new THREE.Mesh(chaserGeo, chaserMat);
-        // 怪物初始在玩家身后 (Z轴正向是身后)
-        chaser.position.set(0, 2, CONFIG.chaserStartDist); 
-        chaser.castShadow = true;
+        // 2. “大香蕉”追逐者 (黄色拉长球体)
+        // TODO: 替换为你自己的 banana.glb 素材
+        const bananaGeo = new THREE.CapsuleGeometry(1.5, 4, 4, 16); 
+        const bananaMat = new THREE.MeshStandardMaterial({ color: 0xffff00, emissive: 0x333300 });
+        const chaser = new THREE.Mesh(bananaGeo, bananaMat);
+        chaser.position.set(0, 3, 20); // 初始在后方
         scene.add(chaser);
 
-        // 5. 地形生成 (简单的无尽跑道效果)
-        const groundGeo = new THREE.PlaneGeometry(100, 10000);
-        const groundMat = new THREE.MeshStandardMaterial({ color: 0x228B22 });
-        const ground = new THREE.Mesh(groundGeo, groundMat);
-        ground.rotation.x = -Math.PI / 2;
-        ground.position.z = -4000; // 地面向远处延伸
-        ground.receiveShadow = true;
+        // 3. 跑道 (像视频里那种长廊)
+        const ground = new THREE.Mesh(new THREE.PlaneGeometry(10, 10000), new THREE.MeshStandardMaterial({ color: 0x222222 }));
+        ground.rotation.x = -Math.PI/2;
         scene.add(ground);
 
-        // 随机生成一些障碍物
-        const obstacles = [];
-        for (let i = 0; i < 100; i++) {
-            const box = new THREE.Mesh(
-                new THREE.BoxGeometry(3, 3, 3),
-                new THREE.MeshStandardMaterial({ color: 0xffa500 })
-            );
-            // 随机分布在跑道前方
-            const x = (Math.random() - 0.5) * 40; 
-            const z = - (Math.random() * 500 + 20); // 从 z=-20 到 z=-520
-            box.position.set(x, 1.5, z);
-            box.castShadow = true;
-            box.receiveShadow = true;
-            scene.add(box);
-            obstacles.push(box);
-        }
+        // 4. 逻辑变量
+        let speed = 0.25;
+        let chaseSpeed = 0.23;
+        const keys = {};
+        let isOver = false;
 
-        // 6. 控制逻辑
-        const keys = { w: false, a: false, s: false, d: false };
-        let velocityY = 0;
-        let isJumping = false;
-        let isGameOver = false;
+        window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
+        window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
 
-        window.addEventListener('keydown', (e) => {
-            const key = e.key.toLowerCase();
-            if (keys.hasOwnProperty(key)) keys[key] = true;
-            if (e.code === 'Space' && !isJumping && !isGameOver) {
-                velocityY = CONFIG.jumpForce;
-                isJumping = true;
-            }
-        });
-        window.addEventListener('keyup', (e) => {
-            const key = e.key.toLowerCase();
-            if (keys.hasOwnProperty(key)) keys[key] = false;
-        });
-
-        // 7. 游戏主循环 (每一帧都在跑)
+        // 5. 循环
         function animate() {
+            if (isOver) return;
             requestAnimationFrame(animate);
-            if (isGameOver) return;
 
-            // --- 玩家移动 ---
-            // W键：向 Z轴负方向跑 (屏幕深处)
-            if (keys.w) player.position.z -= CONFIG.playerSpeed;
-            if (keys.s) player.position.z += CONFIG.playerSpeed;
-            if (keys.a) player.position.x -= CONFIG.playerSpeed;
-            if (keys.d) player.position.x += CONFIG.playerSpeed;
+            // 玩家前进 (自动向前跑，增加紧张感)
+            player.position.z -= speed;
+            if(keys['a']) player.position.x -= 0.15;
+            if(keys['d']) player.position.x += 0.15;
 
-            // --- 重力与跳跃 ---
-            player.position.y += velocityY;
-            if (player.position.y > 1) { // 1 是地面高度(玩家中心点)
-                velocityY -= CONFIG.gravity;
-            } else {
-                player.position.y = 1;
-                velocityY = 0;
-                isJumping = false;
-            }
-
-            // --- 摄像机跟随 ---
-            // 摄像机在玩家身后上方
-            camera.position.x = player.position.x * 0.5; // 稍微带点延迟感
-            camera.position.y = player.position.y + 5;
-            camera.position.z = player.position.z + 10; 
-            camera.lookAt(player.position.x, player.position.y + 1, player.position.z - 5);
-
-            // --- 追逐者 AI ---
-            // 简单的追踪算法：不断向玩家位置靠拢
-            const targetPos = player.position.clone();
-            const direction = new THREE.Vector3().subVectors(targetPos, chaser.position).normalize();
+            // 大香蕉追逐
+            const dir = new THREE.Vector3().subVectors(player.position, chaser.position).normalize();
+            chaser.position.add(dir.multiplyScalar(chaseSpeed));
             
-            // 如果你按W跑，怪物就追得快；如果你不动，怪物就慢慢飘过来
-            chaser.position.add(direction.multiplyScalar(CONFIG.chaserSpeed));
-            // 保持怪物在地面上方
-            chaser.position.y = 2; 
+            // 怪物摇摆动画 (模拟视频里那种鬼畜感)
+            chaser.rotation.z = Math.sin(Date.now() * 0.01) * 0.2;
+            chaser.rotation.y += 0.05;
 
-            // --- 碰撞检测 (被抓) ---
-            const dist = player.position.distanceTo(chaser.position);
-            if (dist < 1.5) {
-                gameOver("你被抓住了！😱");
-            }
+            // 相机跟随
+            camera.position.set(player.position.x, player.position.y + 3, player.position.z + 8);
+            camera.lookAt(player.position);
+            spotLight.position.set(player.position.x, 10, player.position.z);
 
-            // --- 掉下悬崖 ---
-            if (player.position.y < -10) {
-                gameOver("你掉下去了...🫠");
+            // 死亡判定
+            if (player.position.distanceTo(chaser.position) < 2.5) {
+                isOver = true;
+                document.getElementById('overlay').style.display = 'flex';
             }
 
             renderer.render(scene, camera);
         }
-
-        function gameOver(msg) {
-            isGameOver = true;
-            document.getElementById('status-text').innerText = msg;
-            document.getElementById('overlay').style.display = 'flex';
-        }
-
         animate();
-
-        // 适配屏幕大小
-        window.addEventListener('resize', () => {
-            camera.aspect = window.innerWidth / window.innerHeight;
-            camera.updateProjectionMatrix();
-            renderer.setSize(window.innerWidth, window.innerHeight);
-        });
     </script>
 </body>
 </html>
