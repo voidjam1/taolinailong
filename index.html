@@ -2,17 +2,26 @@
 <html lang="zh">
 <head>
     <meta charset="UTF-8">
-    <title>ESCAPE: FBX WORLD</title>
+    <title>ESCAPE: THE CHASE - 3D FBX WORLD</title>
     <style>
-        body { margin: 0; overflow: hidden; background: #000; }
+        body { margin: 0; overflow: hidden; background: #000; font-family: sans-serif; }
         #loading {
             position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%);
-            color: white; font-family: sans-serif; font-size: 20px;
+            color: yellow; font-size: 20px; text-shadow: 2px 2px #000;
         }
+        #ui {
+            position: absolute; top: 20px; left: 20px; color: white;
+            text-shadow: 2px 2px #000; pointer-events: none;
+        }
+        #dist-ui { color: #ff4444; font-size: 24px; font-weight: bold; }
     </style>
 </head>
 <body>
-    <div id="loading">正在加载 FBX 宏大世界... (请稍候)</div>
+    <div id="loading">正在唤醒 3D 世界...</div>
+    <div id="ui">
+        <div id="dist-ui">逃离追捕！距离：--m</div>
+        <p>WASD 移动 | 别被红色的家伙抓到</p>
+    </div>
 
     <script type="importmap">
         {
@@ -27,83 +36,136 @@
         import * as THREE from 'three';
         import { FBXLoader } from 'three/addons/loaders/FBXLoader.js';
 
+        // --- 1. 基础场景 ---
         const scene = new THREE.Scene();
-        scene.background = new THREE.Color(0x111111);
-        scene.fog = new THREE.Fog(0x111111, 20, 100);
+        scene.background = new THREE.Color(0x050505);
+        scene.fog = new THREE.Fog(0x050505, 1, 150);
 
-        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 2000);
+        const camera = new THREE.PerspectiveCamera(75, window.innerWidth / window.innerHeight, 0.1, 5000);
         const renderer = new THREE.WebGLRenderer({ antialias: true });
         renderer.setSize(window.innerWidth, window.innerHeight);
         renderer.shadowMap.enabled = true;
         document.body.appendChild(renderer.domElement);
 
-        // 强力灯光配置，确保 FBX 贴图能看清
-        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 2);
+        // --- 2. 强力打光系统 (重点修复在此) ---
+        // 1. 全局环境光 - 给整个场景一个基础亮度
+        const ambientLight = new THREE.AmbientLight(0xffffff, 1.2); 
+        scene.add(ambientLight);
+
+        // 2. 半球光 - 模拟天空和地面的反射光，增加细节
+        const hemiLight = new THREE.HemisphereLight(0xffffff, 0x444444, 1.5);
         scene.add(hemiLight);
 
-      // --- 核心：FBX 加载逻辑 (修复黑屏版) ---
+        // 3. 主平行光 - 产生阴影，模拟阳光
+        const sunLight = new THREE.DirectionalLight(0xffffff, 1.5);
+        sunLight.position.set(50, 100, 50);
+        sunLight.castShadow = true;
+        scene.add(sunLight);
+
+        // --- 3. 加载 FBX 地图 ---
         const fbxLoader = new FBXLoader();
         fbxLoader.load('map.fbx', (object) => {
-            // 1. 自动适配大小（防止模型太大或太小）
+            // 自动缩放和居中
             const box = new THREE.Box3().setFromObject(object);
-            const size = box.getSize(new THREE.Vector3()).length();
-            const scale = 50 / size; // 强制缩放到合适尺寸
+            const size = box.getSize(new THREE.Vector3());
+            const center = box.getCenter(new THREE.Vector3());
+            
+            // 调整比例：根据模型大小自动适配到 200 个单位左右
+            const maxDim = Math.max(size.x, size.y, size.z);
+            const scale = 200 / maxDim;
             object.scale.set(scale, scale, scale);
             
-            // 2. 遍历并修复材质
+            // 将模型底部对齐到 Y=0
+            object.position.x = -center.x * scale;
+            object.position.y = -box.min.y * scale; 
+            object.position.z = -center.z * scale;
+
             object.traverse((child) => {
                 if (child.isMesh) {
                     child.castShadow = true;
                     child.receiveShadow = true;
-                    
-                    // 修复全黑的关键：如果模型太黑，强制使用 MeshStandardMaterial
-                    if (child.material) {
-                        // 允许材质接收光照，如果 FBX 导出时没带贴图，至少能看到颜色
-                        child.material.emissive = new THREE.Color(0x222222); // 轻微自发光防止死黑
-                        child.material.roughness = 0.8; 
-                        child.material.metalness = 0.2;
+                    // 如果材质全黑，强制赋予基础亮度
+                    if(child.material) {
+                        child.material.emissive = new THREE.Color(0x111111);
                     }
                 }
             });
 
             scene.add(object);
             document.getElementById('loading').style.display = 'none';
-            console.log("地图加载成功！");
-        }, 
-        (xhr) => {
-            const percent = (xhr.loaded / xhr.total * 100).toFixed(0);
-            document.getElementById('loading').innerText = `加载中: ${percent}%`;
-        },
-        (error) => {
-            console.error("加载失败，请检查文件名或路径：", error);
-            document.getElementById('loading').innerText = "加载失败，请检查文件";
+        }, (xhr) => {
+            const p = (xhr.loaded / xhr.total * 100).toFixed(0);
+            document.getElementById('loading').innerText = `加载世界: ${p}%`;
+        }, (err) => {
+            document.getElementById('loading').innerText = "加载失败，请检查文件名";
         });
 
-        // --- 玩家占位符 ---
-        const player = new THREE.Mesh(new THREE.BoxGeometry(1, 2, 1), new THREE.MeshStandardMaterial({color: 0x00ff00}));
+        // --- 4. 玩家与追逐者 ---
+        // 玩家 (绿方块)
+        const player = new THREE.Mesh(
+            new THREE.BoxGeometry(1, 2, 1), 
+            new THREE.MeshStandardMaterial({color: 0x00ff00})
+        );
         player.position.set(0, 1, 0);
         scene.add(player);
 
-        // --- 简易运动逻辑 ---
+        // 追逐者 (红方块 - "XXX")
+        const chaser = new THREE.Mesh(
+            new THREE.BoxGeometry(2, 4, 2), 
+            new THREE.MeshStandardMaterial({color: 0xff0000, emissive: 0x550000})
+        );
+        chaser.position.set(0, 2, 30); // 初始在后方
+        scene.add(chaser);
+
+        // --- 5. 运动与逻辑 ---
         const keys = {};
         window.onkeydown = (e) => keys[e.key.toLowerCase()] = true;
         window.onkeyup = (e) => keys[e.key.toLowerCase()] = false;
 
-        function animate() {
-            requestAnimationFrame(animate);
-            if(keys['w']) player.position.z -= 0.2;
-            if(keys['s']) player.position.z += 0.2;
-            if(keys['a']) player.position.x -= 0.2;
-            if(keys['d']) player.position.x += 0.2;
+        let chaserSpeed = 0.18;
+        let isGameOver = false;
 
-            // 相机跟随
-            camera.position.set(player.position.x, player.position.y + 10, player.position.z + 20);
-            camera.lookAt(player.position);
+        function animate() {
+            if (isGameOver) return;
+            requestAnimationFrame(animate);
+
+            // 玩家移动
+            if(keys['w']) player.position.z -= 0.25;
+            if(keys['s']) player.position.z += 0.25;
+            if(keys['a']) player.position.x -= 0.25;
+            if(keys['d']) player.position.x += 0.25;
+
+            // 追逐者 AI：向玩家靠近
+            const direction = new THREE.Vector3().subVectors(player.position, chaser.position).normalize();
+            chaser.position.add(direction.multiplyScalar(chaserSpeed));
+
+            // 相机动态平滑跟随
+            const idealCameraPos = new THREE.Vector3(player.position.x, player.position.y + 6, player.position.z + 15);
+            camera.position.lerp(idealCameraPos, 0.1);
+            camera.lookAt(player.position.x, player.position.y + 1, player.position.z);
+
+            // 距离计算
+            const dist = player.position.distanceTo(chaser.position);
+            document.getElementById('dist-ui').innerText = `逃离追捕！距离：${dist.toFixed(1)}m`;
+
+            // 靠近时的屏幕震动感
+            if (dist < 8) {
+                camera.position.x += (Math.random() - 0.5) * 0.1;
+                camera.position.y += (Math.random() - 0.5) * 0.1;
+            }
+
+            // 碰撞判定
+            if (dist < 1.5) {
+                isGameOver = true;
+                alert("你被抓住了！刷新页面重试。");
+                location.reload();
+            }
 
             renderer.render(scene, camera);
         }
         animate();
 
+        // 窗口自适应
         window.onresize = () => {
             camera.aspect = window.innerWidth / window.innerHeight;
             camera.updateProjectionMatrix();
